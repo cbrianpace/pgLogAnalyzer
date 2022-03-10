@@ -15,7 +15,11 @@ This solution is used to load pgBouncer, Crunchy PostgreSQL Operator, and Postgr
   - re
 
 ## Setup
-The following steps can be followed to start the stack in Docker
+The first step is to start the pgLogAnalyzer stack:
+
+```
+docker-compose -f docker-compose.yaml up
+```
 
 
 ## Loading Logs
@@ -25,7 +29,7 @@ The load the logs into Loki, execute the following:
 python3 loadLogs.py -d <directory contain log files> [-t <postgres|pgbouncer|pgo>]
 ```
 
-The directory passed to the program will be recursively searched for all *.log files.  If the type was not specified (using -t), then the program will attempt to determine the log type from the log name.
+The directory passed to the program will be recursively searched for all *.log files.  If the type was not specified (using -t), then the program will attempt to determine the log type from the log name.  The parent directory for the log is used as the target label to group related log files.
 
 ## Example Queries
 ```

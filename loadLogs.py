@@ -99,10 +99,10 @@ def main():
     args = vars(ap.parse_args())
 
     dirname = args['dir']
-    logtype = args['type']
+    logtypearg = args['type']
 
     for fn in glob.iglob(dirname+"/**/*.log", recursive=True):
-        if logtype == "unknown":
+        if logtypearg == "unknown":
             if fn.upper().find("OPERATOR.LOG") > 0:
                 logtype = "pgo"
             elif fn.upper().find("POSTGRESQL") > 0:
@@ -110,33 +110,15 @@ def main():
             elif fn.upper().find("PGBOUNCER") > 0:
                 logtype = "pgbouncer"
             else:
-                print("ERROR:  Cannot identify log type and none specified in command line arguement (-t)")
-                exit()
+                print("ERROR:  Cannot identify log type:", os.path.basename(fn))
+                continue
+        else:
+            logtype = logtypearg
         
         print("Identified Log Type as ", logtype)    
-        target = fn[len(dirname)+1:].split("/")[0]
+        target = fn[len(dirname)+1:].split("/")[-2]
         lr = read_file(target, logtype, fn)
         print(" ")
-                
-        # # Python3 code to demonstrate
-        # # converting comma separated string
-        # # into dictionary
-
-        # # Initialising string
-        # ini_string1 = 'name = akshat, course = btech, branch = computer'
-
-        # # Printing initial string
-        # print ("Initial String", ini_string1)
-
-        # # Converting string into dictionary
-        # # using dict comprehension
-        # res = dict(item.split("=") for item in ini_string1.split(", "))
-                
-        # # Printing resultant string
-        # print ("Resultant dictionary", str(res))
-            
-
-        # loki_post(target, data)
 
 if __name__ == '__main__':
     main()
