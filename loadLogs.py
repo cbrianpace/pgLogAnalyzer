@@ -8,7 +8,7 @@ import os
 import re
 import sys
 
-batchsize=200
+batchsize=1000
 
 def parse_postgres(line):
     try:
@@ -28,7 +28,7 @@ def parse_postgres(line):
         structure.pop("type")
         return structure
     except Exception:
-        print("Error in File:", line)
+        print("Error in File:", line, Exception)
 
 def parse_pgo(line):
     try:
@@ -72,22 +72,22 @@ def read_file(target, logtype, fn):
                 
         
         if (queuelines >= batchsize):
-            loki_post(target, logtype, data)
-            date = []
+            loki_post(target, logtype, os.path.basename(fn), data)
+            data = []
             queuelines=0
             
         linenbr += 1
 
     if queuelines > 0:
-        loki_post(target, logtype, data)
+        loki_post(target, logtype, os.path.basename(fn), data)
         
     sys.stdout.write("Reading File %s   Lines Processed:  %d    " % (os.path.basename(fn), linenbr) )
     sys.stdout.flush()
     return linenbr
 
-def loki_post(target, logtype, data):
+def loki_post(target, logtype, fn, data):
     payload = {}
-    payload.update({"streams": [{ "labels": "{target=\""+target+"\", logtype=\""+logtype+"\"}", "entries": data}]})
+    payload.update({"streams": [{ "labels": "{target=\""+target+"\", logtype=\""+logtype+"\", filename=\""+fn+"\"}", "entries": data}]})
     r = requests.post('http://localhost:3100/api/prom/push',json=payload)
     if r.status_code != 204:
         print(r, r.text)
@@ -116,7 +116,7 @@ def main():
             logtype = logtypearg
         
         print("Identified Log Type as ", logtype)    
-        target = fn[len(dirname)+1:].split("/")[-2]
+        target = fn[len(dirname)+1:].split("/")[0]
         lr = read_file(target, logtype, fn)
         print(" ")
 

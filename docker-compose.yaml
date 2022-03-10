@@ -18,10 +18,13 @@ services:
     image: grafana/grafana:latest
     volumes:
       - ./grafana/grafana-datasources.yaml:/etc/grafana/provisioning/datasources/grafana-datasources.yaml
+      - ./grafana/dashboards:/etc/grafana/dashboards
+      - ./grafana/crunchy-dashboards.yaml:/etc/grafana/provisioning/dashboards/crunchy-dashboards.yaml
     environment:
       - LOKI_URL=loki
       - GF_AUTH_ANONYMOUS_ENABLED=true
       - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - DASHBOARDS_PATH=/etc/grafana/dashboards
     ports:
       - "3000:3000"
     networks:

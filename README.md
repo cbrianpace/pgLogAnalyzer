@@ -13,6 +13,7 @@ This solution is used to load pgBouncer, Crunchy PostgreSQL Operator, and Postgr
   - glob
   - argparse
   - re
+- PostgreSQL Logs (log_line_prefix) must start with %m formated date
 
 ## Setup
 The first step is to start the pgLogAnalyzer stack:
@@ -29,7 +30,7 @@ The load the logs into Loki, execute the following:
 python3 loadLogs.py -d <directory contain log files> [-t <postgres|pgbouncer|pgo>]
 ```
 
-The directory passed to the program will be recursively searched for all *.log files.  If the type was not specified (using -t), then the program will attempt to determine the log type from the log name.  The parent directory for the log is used as the target label to group related log files.
+The directory passed to the program will be recursively searched for all *.log files.  If the type was not specified (using -t), then the program will attempt to determine the log type from the log name.  The first child directory under the specified directory is used as the target label to group related log files.
 
 ## Example Queries
 ```
@@ -38,6 +39,8 @@ The directory passed to the program will be recursively searched for all *.log f
 {logtype="pgbouncer"} |~ "LOG stats" | pattern "<_> <_> stats: <xacts> xacts/s, <queries> queries/s, in <inbytesps> B/s, out <outbytesps> B/s, xact <xactus> us, query <queryus> us, wait <waitus> us"
 
 sum by (target) (sum_over_time({logtype="pgbouncer"} |~ "LOG stats" | pattern "<_> <_> stats: <xacts> xacts/s, <queries> queries/s, in <inbytesps> B/s, out <outbytesps> B/s, xact <xactus> us, query <queryus> us, wait <waitus> us" | unwrap inbytesps [1m]))
+
+sum by (target) (sum_over_time({logtype="pgbouncer"} |~ "LOG stats" | pattern "<_> <_> stats: <xacts> xacts/s, <queries> queries/s, in <inbytesps> B/s, out <outbytesps> B/s, xact <xactus> us, query <queryus> us, wait <waitus> us" | unwrap queries [1m]))
 
 {target=~"video.+", logtype="postgres"} | pattern "[<_>] <level>:"
 ```
