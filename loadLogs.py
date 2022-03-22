@@ -10,15 +10,28 @@ import sys
 
 batchsize=1000
 
-def parse_postgres(line):
+def parse_postgres(line, dtformat):
     try:
+        # Postgres Log Date %m = 2022-03-22 11:17:57.954 EDT
+        # Postgres Log Date %t = 2022-03-22 11:41:10 EDT
         order = ["date", "time", "tz", "process", "type"]
         details = line.split(" ")
         details = [x.strip() for x in details]
         structure = {key:value for key, value in zip(order, details)}
-        # structure.update({"linenbr": linenbr})
-        fulldate = datetime.datetime.strptime(structure.get("date") + " " + structure.get("time") + " " + structure.get("tz"), '%Y-%m-%d %H:%M:%S.%f %Z')
-        structure.update({"ts": fulldate.replace(tzinfo=pytz.timezone(structure.get("tz"))).isoformat()})
+
+        # Adjust for daylight savings time
+        if (structure.get("tz").find("DT") > 0):
+            tmptz = structure.get("tz")
+            tmptz = tmptz[0:1]+"ST5"+tmptz
+        else:
+            tmptz = structure.get("tz")
+            
+        if (dtformat == "m"):
+            fulldate = datetime.datetime.strptime(structure.get("date") + " " + structure.get("time") + " " + structure.get("tz"), '%Y-%m-%d %H:%M:%S.%f %Z')
+        else:
+            fulldate = datetime.datetime.strptime(structure.get("date") + " " + structure.get("time") + ".00000 " + structure.get("tz"), '%Y-%m-%d %H:%M:%S.%f %Z')
+        
+        structure.update({"ts": fulldate.replace(tzinfo=pytz.timezone(tmptz)).isoformat()})
         # structure.update({"line": line[line.find(structure.get("type"))+len(structure.get("type"))+2:]})
         structure.update({"line": line[line.find(structure.get("process")):]})
         structure.pop("process")
@@ -27,8 +40,9 @@ def parse_postgres(line):
         structure.pop("date")
         structure.pop("type")
         return structure
-    except Exception:
-        print("Error in File:", line, Exception)
+    except Exception as e:
+        print("Error in File:", line)
+        print(e)
 
 def parse_pgo(line):
     try:
@@ -56,7 +70,7 @@ def parse_syslog(line, tz):
         print("Error in File:", line)
         print(e)
         
-def read_file(target, logtype, fn, tz):
+def read_file(target, logtype, fn, tz, dtformat):
     linenbr = 1
     file = open(fn, "r")
     queuelines = 0
@@ -69,7 +83,7 @@ def read_file(target, logtype, fn, tz):
                 
         if (logtype == "postgres"):
             if re.match("^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}",line):
-                structure = parse_postgres(line)
+                structure = parse_postgres(line, dtformat)
                 data.append(structure)
                 queuelines += 1
         
@@ -80,7 +94,7 @@ def read_file(target, logtype, fn, tz):
 
         if (logtype == "pgbouncer"):
             if re.match("^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}",line):
-                structure = parse_postgres(line)
+                structure = parse_postgres(line, dtformat)
                 data.append(structure)
                 queuelines += 1
                 
@@ -115,11 +129,13 @@ def main():
     ap.add_argument("-d", "--dir", required=True)
     ap.add_argument("-t", "--type", required=False, default="unknown")
     ap.add_argument("-z", "--timezone", required=False, default="+00:00")
+    ap.add_argument("-f", "--dateformat", required=False, default="m")
     args = vars(ap.parse_args())
 
     dirname = args['dir']
     logtypearg = args['type']
     tz = args['timezone']
+    dtformat = args['dateformat']
 
     for fn in glob.iglob(dirname+"/**/*.log", recursive=True):
         if logtypearg == "unknown":
@@ -137,7 +153,7 @@ def main():
         
         print("Identified Log Type as ", logtype)
         target = fn[len(dirname)+1:].split("/")[0]
-        lr = read_file(target, logtype, fn, tz)
+        lr = read_file(target, logtype, fn, tz, dtformat)
         print(" ")
 
 if __name__ == '__main__':

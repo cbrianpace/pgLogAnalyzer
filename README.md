@@ -27,12 +27,14 @@ docker-compose -f docker-compose.yaml up
 The load the logs into Loki, execute the following:
 
 ```
-python3 loadLogs.py -d <directory contain log files> [-t <postgres|pgbouncer|pgo|syslog>][--timezone="+00:00"]
+python3 loadLogs.py -d <directory contain log files> [-t <postgres|pgbouncer|pgo|syslog>][--timezone="+00:00"][-f <m|t>]
 ```
 
 The directory passed to the program will be recursively searched for all *.log files.  If the type was not specified (using -t), then the program will attempt to determine the log type from the log name.  The first child directory under the specified directory is used as the target label to group related log files.
 
 For timezone (-z or --timezone) pass in the offset from UTC.  This is only used for parsing syslog messages.
+
+Parsing PostgreSQL logs assumes a date format of %m.  If %t is used instead, then override the default assumption using the -f option and specifying 't' as the format.
 
 ## Example Queries
 ```
