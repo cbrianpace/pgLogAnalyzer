@@ -41,8 +41,22 @@ def parse_pgo(line):
         return structure
     except Exception:
         print("Error in File:", line)
+
+def parse_syslog(line, tz):
+    try:
+        structure ={}
+        #Mar 22 08:22:23 jaxhippo01 systemd[1]: Started User Manager for UID 0.
+        # print(re.split(' (?=\[)',test))
+        tempdate = line[0:6] + " " + str(datetime.datetime.now().year) + " " + line[7:15] + ".00000" + tz
+        fulldate = datetime.datetime.strptime(tempdate, '%b %d %Y %H:%M:%S.%f%z').isoformat()
+        structure.update({"ts": fulldate})
+        structure.update({"line": line[16:]})
+        return structure
+    except Exception as e:
+        print("Error in File:", line)
+        print(e)
         
-def read_file(target, logtype, fn):
+def read_file(target, logtype, fn, tz):
     linenbr = 1
     file = open(fn, "r")
     queuelines = 0
@@ -70,7 +84,11 @@ def read_file(target, logtype, fn):
                 data.append(structure)
                 queuelines += 1
                 
-        
+        if (logtype == "syslog"):
+            structure = parse_syslog(line, tz)
+            data.append(structure)
+            queuelines += 1
+                    
         if (queuelines >= batchsize):
             loki_post(target, logtype, os.path.basename(fn), data)
             data = []
@@ -96,10 +114,12 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("-d", "--dir", required=True)
     ap.add_argument("-t", "--type", required=False, default="unknown")
+    ap.add_argument("-z", "--timezone", required=False, default="+00:00")
     args = vars(ap.parse_args())
 
     dirname = args['dir']
     logtypearg = args['type']
+    tz = args['timezone']
 
     for fn in glob.iglob(dirname+"/**/*.log", recursive=True):
         if logtypearg == "unknown":
@@ -115,9 +135,9 @@ def main():
         else:
             logtype = logtypearg
         
-        print("Identified Log Type as ", logtype)    
+        print("Identified Log Type as ", logtype)
         target = fn[len(dirname)+1:].split("/")[0]
-        lr = read_file(target, logtype, fn)
+        lr = read_file(target, logtype, fn, tz)
         print(" ")
 
 if __name__ == '__main__':
