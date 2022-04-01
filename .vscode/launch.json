@@ -1,0 +1,16 @@
+{
+
+    "version": "0.2.0",
+    "configurations": [
+
+        {
+            "name": "Python: Current File",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "args": ["-c","apic","-d","/app/temp/apic/crunchy_k8s_support_dump_20220401-141703/pod_logs"],
+            "justMyCode": true
+        }
+    ]
+}

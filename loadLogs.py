@@ -7,9 +7,15 @@ import argparse
 import os
 import re
 import sys
+import logging
 
 batchsize=1000
 
+logFormat = "%(asctime)s %(levelname)s - %(message)s"
+
+########################################
+## PARSE:  PostgreSQL Log
+########################################
 def parse_postgres(line, dtformat):
     try:
         # Postgres Log Date %m = 2022-03-22 11:17:57.954 EDT
@@ -18,6 +24,13 @@ def parse_postgres(line, dtformat):
         details = line.split(" ")
         details = [x.strip() for x in details]
         structure = {key:value for key, value in zip(order, details)}
+        lasttz = "UTC"
+
+        # Adjust for pgBackRest leaving timezone out of log   
+        if (structure.get("tz")[0:2] == "P0"):
+            structure.update({"tz": lasttz})
+        else:
+            lasttz = structure.get("tz")
 
         # Adjust for daylight savings time
         if (structure.get("tz").find("DT") > 0):
@@ -25,7 +38,7 @@ def parse_postgres(line, dtformat):
             tmptz = tmptz[0:1]+"ST5"+tmptz
         else:
             tmptz = structure.get("tz")
-            
+                    
         if (dtformat == "m"):
             fulldate = datetime.datetime.strptime(structure.get("date") + " " + structure.get("time") + " " + structure.get("tz"), '%Y-%m-%d %H:%M:%S.%f %Z')
         else:
@@ -41,9 +54,33 @@ def parse_postgres(line, dtformat):
         structure.pop("type")
         return structure
     except Exception as e:
-        print("Error in File:", line)
-        print(e)
+        app_message("Error in File () "+line, "warning", False)        
 
+########################################
+## PARSE:  database pod
+########################################
+def parse_pod_database(line, dtformat):
+    try:
+        # 2022-01-27 19:38:12,320 INFO: trying to bootstrap a new cluster
+        order = ["date", "time"]
+        details = line.split(" ")
+        details = [x.strip() for x in details]
+        structure = {key:value for key, value in zip(order, details)}
+
+        fulldate = datetime.datetime.strptime(structure.get("date") + " " + structure.get("time").replace(",",".") + " UTC", '%Y-%m-%d %H:%M:%S.%f %Z')
+        
+        structure.update({"ts": fulldate.isoformat()})
+        structure.update({"line": line[23:]})
+        structure.pop("time")
+        structure.pop("date")
+        return structure
+    except Exception as e:
+       app_message("Error in File () "+line, "warning", False)
+
+        
+########################################
+## PARSE:  pgo pod log
+########################################
 def parse_pgo(line):
     try:
         structure ={}
@@ -53,9 +90,27 @@ def parse_pgo(line):
         structure.update({"ts": lineparse[0][6:].replace('"','').replace("Z",".00000+00:00")})
         structure.update({"line": line[len(lineparse[0])+1:]})
         return structure
-    except Exception:
-        print("Error in File:", line)
+    except Exception as e:
+        app_message("Error in File () "+line, "warning", False)
 
+########################################
+## PARSE:  exporter pod
+########################################
+def parse_exporter_pod(line):
+    try:
+        structure ={}
+        #time="2022-01-27T19:38:33Z" level=info msg="Established new database connection to \"localhost:25432\"." source="postgres_exporter.go:878"
+        lineparse = re.findall(r'(?:[^\s,"]|"(?:\\.|[^"])*")+', line)
+        structure.update({"ts": lineparse[0][6:].replace('"','').replace("Z",".00000+00:00")})
+        structure.update({"line": line[len(lineparse[0])+1:]})
+        return structure
+    except Exception as e:
+        app_message("Error in File: "+line, "warning", False)
+
+
+########################################
+## PARSE:  syslog
+########################################
 def parse_syslog(line, tz):
     try:
         structure ={}
@@ -67,94 +122,156 @@ def parse_syslog(line, tz):
         structure.update({"line": line[16:]})
         return structure
     except Exception as e:
-        print("Error in File:", line)
-        print(e)
-        
-def read_file(target, logtype, fn, tz, dtformat):
+        app_message("Error in File: "+line, "warning", False)
+
+########################################
+## Read File
+########################################        
+def read_file(target, logtype, fn, tz, dtformat, customer):
     linenbr = 1
+    lineerrors = 0
     file = open(fn, "r")
     queuelines = 0
     data = []
 
     for line in file.readlines():
-        sys.stdout.write("Reading File %s   Lines Processed:  %d   \r" % (os.path.basename(fn), linenbr) )
-        sys.stdout.flush()
-        structure = {}
-                
-        if (logtype == "postgres"):
-            if re.match("^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}",line):
-                structure = parse_postgres(line, dtformat)
-                data.append(structure)
-                queuelines += 1
-        
-        if (logtype == "pgo"):
-            structure = parse_pgo(line)
-            data.append(structure)
-            queuelines += 1
-
-        if (logtype == "pgbouncer"):
-            if re.match("^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}",line):
-                structure = parse_postgres(line, dtformat)
-                data.append(structure)
-                queuelines += 1
-                
-        if (logtype == "syslog"):
-            structure = parse_syslog(line, tz)
-            data.append(structure)
-            queuelines += 1
+        try:
+            sys.stdout.write("Reading File %s   Lines Processed:  %d   (%d errors)\r" % (os.path.basename(fn), linenbr, lineerrors) )
+            sys.stdout.flush()
+            structure = {}
                     
-        if (queuelines >= batchsize):
-            loki_post(target, logtype, os.path.basename(fn), data)
-            data = []
-            queuelines=0
+            if (logtype == "postgres"):
+                if re.match("^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}",line):
+                    structure = parse_postgres(line, dtformat)
+                    data.append(structure)
+                    queuelines += 1
             
-        linenbr += 1
+            if (logtype == "pod-pgo"):
+                structure = parse_pgo(line)
+                data.append(structure)
+                queuelines += 1
 
+            if (logtype == "pod-db"):
+                if re.match("^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}",line):
+                    structure = parse_pod_database(line, dtformat)
+                    data.append(structure)
+                    queuelines += 1
+
+            if (logtype == "pod-exporter"):
+                if re.match("^\time",line):
+                    structure = parse_exporter_pod(line, dtformat)
+                    data.append(structure)
+                    queuelines += 1
+
+            if (logtype == "pgbouncer"):
+                if re.match("^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}",line):
+                    structure = parse_postgres(line, dtformat)
+                    data.append(structure)
+                    queuelines += 1
+                    
+            if (logtype == "syslog"):
+                structure = parse_syslog(line, tz)
+                data.append(structure)
+                queuelines += 1
+                        
+            if (queuelines >= batchsize):
+                loki_post(target, logtype, os.path.basename(fn), data, customer)
+                data = []
+                queuelines=0
+                
+            linenbr += 1
+        except Exception as e:
+            lineerrors += 1
+            app_message("Error in Reading Line "+line, "warning", False)
+            
     if queuelines > 0:
-        loki_post(target, logtype, os.path.basename(fn), data)
+        loki_post(target, logtype, os.path.basename(fn), data, customer)
         
-    sys.stdout.write("Reading File %s   Lines Processed:  %d    " % (os.path.basename(fn), linenbr) )
+    sys.stdout.write("Read File %s   Lines Processed:  %d    (%d errors)     \r" % (os.path.basename(fn), linenbr, lineerrors) )
     sys.stdout.flush()
+    print("")
     return linenbr
 
-def loki_post(target, logtype, fn, data):
-    payload = {}
-    payload.update({"streams": [{ "labels": "{target=\""+target+"\", logtype=\""+logtype+"\", filename=\""+fn+"\"}", "entries": data}]})
-    r = requests.post('http://localhost:3100/api/prom/push',json=payload)
-    if r.status_code != 204:
-        print(r, r.text)
+########################################
+## Post Payload to Loki
+########################################
+def loki_post(target, logtype, fn, data, customer):
+    try:
+        payload = {}
+        payload.update({"streams": [{ "labels": "{customer=\""+customer+"\", target=\""+target+"\", logtype=\""+logtype+"\", filename=\""+fn+"\"}", "entries": data}]})
+        r = requests.post('http://localhost:3100/api/prom/push',json=payload)
+        if r.status_code != 204:
+            app_message("Error in post to Loki "+r.text, "warning", False)
+            # print(r, r.text)
+            
+    except Exception as e:
+        lineerrors += 1
+        app_message("Error in post to Loki "+line, "warning", False)
 
+########################################
+## App Message Logging
+########################################
+def app_message(message, level, toconsole):
+    logger = logging.getLogger()
+    
+    if toconsole:
+        print(message)
+    
+        if level == "info":
+            logger.info(message)
+            
+        if level == "warning":
+            logger.warning(message)
+            
+        if level == "error":
+            logger.error(message)
+         
+        
+
+########################################
+## MAIN
+########################################
 def main():
+    logging.basicConfig(filename = "load.log", filemode ="w", format = logFormat, level = logging.INFO)
+    logger = logging.getLogger()
+    
+    logger.info("Starting log load")
+    
     ap = argparse.ArgumentParser()
     ap.add_argument("-d", "--dir", required=True)
     ap.add_argument("-t", "--type", required=False, default="unknown")
     ap.add_argument("-z", "--timezone", required=False, default="+00:00")
     ap.add_argument("-f", "--dateformat", required=False, default="m")
+    ap.add_argument("-c", "--customer", required=False, default="unknown")
     args = vars(ap.parse_args())
 
     dirname = args['dir']
     logtypearg = args['type']
     tz = args['timezone']
     dtformat = args['dateformat']
+    customer = args['customer']
 
     for fn in glob.iglob(dirname+"/**/*.log", recursive=True):
         if logtypearg == "unknown":
             if fn.upper().find("OPERATOR.LOG") > 0:
-                logtype = "pgo"
+                logtype = "pod-pgo"
+            elif fn.upper().find("DATABASE.LOG") > 0:
+                logtype = "pod-db"
             elif fn.upper().find("POSTGRESQL") > 0:
                 logtype = "postgres"
-            elif fn.upper().find("PGBOUNCER") > 0:
+            elif fn.upper().find("PGBOUNCER.LOG") > 0:
                 logtype = "pgbouncer"
+            elif fn.upper().find("EXPORTER.LOG") > 0:
+                logtype = "pod-exporter"
             else:
-                print("ERROR:  Cannot identify log type:", os.path.basename(fn))
+                app_message("ERROR:  Cannot identify log type: "+os.path.basename(fn), "error", True)
                 continue
         else:
             logtype = logtypearg
         
-        print("Identified Log Type as ", logtype)
+        app_message("Identified Log Type as "+logtype, "info", True)
         target = fn[len(dirname)+1:].split("/")[0]
-        lr = read_file(target, logtype, fn, tz, dtformat)
-        print(" ")
+        lr = read_file(target, logtype, fn, tz, dtformat, customer)
 
 if __name__ == '__main__':
     main()

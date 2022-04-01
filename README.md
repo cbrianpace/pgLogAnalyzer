@@ -13,7 +13,7 @@ This solution is used to load pgBouncer, Crunchy PostgreSQL Operator, and Postgr
   - glob
   - argparse
   - re
-- PostgreSQL Logs (log_line_prefix) must start with %m formated date
+- PostgreSQL Logs (log_line_prefix) must start with %m or %t formated date
 
 ## Setup
 The first step is to start the pgLogAnalyzer stack:
@@ -27,7 +27,7 @@ docker-compose -f docker-compose.yaml up
 The load the logs into Loki, execute the following:
 
 ```
-python3 loadLogs.py -d <directory contain log files> [-t <postgres|pgbouncer|pgo|syslog>][--timezone="+00:00"][-f <m|t>]
+python3 loadLogs.py -d <directory contain log files> [-c <custerom>] [-t <postgres|pgbouncer|pgo|syslog>][--timezone="+00:00"][-f <m|t>]
 ```
 
 The directory passed to the program will be recursively searched for all *.log files.  If the type was not specified (using -t), then the program will attempt to determine the log type from the log name.  The first child directory under the specified directory is used as the target label to group related log files.
@@ -47,4 +47,6 @@ sum by (target) (sum_over_time({logtype="pgbouncer"} |~ "LOG stats" | pattern "<
 sum by (target) (sum_over_time({logtype="pgbouncer"} |~ "LOG stats" | pattern "<_> <_> stats: <xacts> xacts/s, <queries> queries/s, in <inbytesps> B/s, out <outbytesps> B/s, xact <xactus> us, query <queryus> us, wait <waitus> us" | unwrap queries [1m]))
 
 {target=~"video.+", logtype="postgres"} | pattern "[<_>] <level>:"
+
+rate({logtype="postgres"} |= "archive command failed"[1h])
 ```
