@@ -1,8 +1,0 @@
-2022-04-01 14:46:52,628 INFO - Starting log load
-2022-04-01 14:46:52,629 ERROR - ERROR:  Cannot identify log type: postgres-operator-5b9c8bbd45-8kl6p_event.log
-2022-04-01 14:46:52,629 INFO - Identified Log Type as pod-db
-2022-04-01 14:46:52,630 INFO - Identified Log Type as pod-pgo
-2022-04-01 14:46:52,645 INFO - Identified Log Type as pod-db
-2022-04-01 14:46:52,668 ERROR - ERROR:  Cannot identify log type: postgres-operator-5b9c8bbd45-8kl6p_scheduler.log
-2022-04-01 14:46:52,668 INFO - Identified Log Type as pgbouncer
-2022-04-01 14:46:52,814 ERROR - ERROR:  Cannot identify log type: postgres-operator-5b9c8bbd45-8kl6p_apiserver.log

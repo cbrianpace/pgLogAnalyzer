@@ -13,6 +13,7 @@ This solution is used to load pgBouncer, Crunchy PostgreSQL Operator, and Postgr
   - glob
   - argparse
   - re
+  - logging
 - PostgreSQL Logs (log_line_prefix) must start with %m or %t formated date
 
 ## Setup
