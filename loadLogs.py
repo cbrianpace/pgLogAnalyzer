@@ -16,7 +16,7 @@ logFormat = "%(asctime)s %(levelname)s - %(message)s"
 ########################################
 ## PARSE:  PostgreSQL Log
 ########################################
-def parse_postgres(line, dtformat):
+def parse_postgres(line, dtformat, lasttz):
     try:
         # Postgres Log Date %m = 2022-03-22 11:17:57.954 EDT
         # Postgres Log Date %t = 2022-03-22 11:41:10 EDT
@@ -24,13 +24,16 @@ def parse_postgres(line, dtformat):
         details = line.split(" ")
         details = [x.strip() for x in details]
         structure = {key:value for key, value in zip(order, details)}
-        lasttz = "UTC"
 
         # Adjust for pgBackRest leaving timezone out of log   
-        if (structure.get("tz")[0:2] == "P0"):
+        if (structure.get("tz")[0:2].find("P0") >= 0):
             structure.update({"tz": lasttz})
+            structure.update({"line": line[line.find(" P0"):]})
+            if (dtformat == "t"):
+                structure.update({"time": structure.get("time")[0:8] })
         else:
             lasttz = structure.get("tz")
+            structure.update({"line": line[line.find(structure.get("process")):]})
 
         # Adjust for daylight savings time
         if (structure.get("tz").find("DT") > 0):
@@ -46,13 +49,12 @@ def parse_postgres(line, dtformat):
         
         structure.update({"ts": fulldate.replace(tzinfo=pytz.timezone(tmptz)).isoformat()})
         # structure.update({"line": line[line.find(structure.get("type"))+len(structure.get("type"))+2:]})
-        structure.update({"line": line[line.find(structure.get("process")):]})
         structure.pop("process")
         structure.pop("tz")
         structure.pop("time")
         structure.pop("date")
         structure.pop("type")
-        return structure
+        return structure, lasttz
     except Exception as e:
         app_message("Error in File () "+line, "warning", False)        
 
@@ -133,6 +135,7 @@ def read_file(target, logtype, fn, tz, dtformat, customer):
     file = open(fn, "r")
     queuelines = 0
     data = []
+    lasttz = "UTC"
 
     for line in file.readlines():
         try:
@@ -142,7 +145,7 @@ def read_file(target, logtype, fn, tz, dtformat, customer):
                     
             if (logtype == "postgres"):
                 if re.match("^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}",line):
-                    structure = parse_postgres(line, dtformat)
+                    (structure, lasttz) = parse_postgres(line, dtformat, lasttz)
                     data.append(structure)
                     queuelines += 1
             
@@ -182,6 +185,9 @@ def read_file(target, logtype, fn, tz, dtformat, customer):
             linenbr += 1
         except Exception as e:
             lineerrors += 1
+            print(e)
+            print(line)
+            print(" ")
             app_message("Error in Reading Line "+line, "warning", False)
             
     if queuelines > 0:
